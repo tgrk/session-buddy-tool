@@ -4,8 +4,7 @@
 #
 # TODO:
 # * update existing item with new 1links collection
-# * figure out how to specify excluded urls (file?)
-# * check if exists in GetPocket and insert if not
+# * check if exists in GetPocket and insert if not?
 # * find extension db path? what about cross-platform shit?
 
 import sys
@@ -28,7 +27,7 @@ def load_exclude_file(path):
         print "File with excluded urls can not be found!"
     return excluded
 
-def extract_links(row):
+def extract_links(row, full):
     tabs = cjson.decode(row[1])
     row_id = None
     for key in tabs[0].keys():
@@ -38,9 +37,13 @@ def extract_links(row):
         elif key == "tabs":
             items = []
             for i in obj:
-                items.append({"title": i["title"], "url": i["url"]})
+                if full:
+                    items.append(i)
+                else:
+                    items.append({"title": i["title"], "url": i["url"]})
     return {"id": row_id, "items": items}
 
+#TODO: maybe use sets to speed things up?
 def remove_duplicates(items):
     seen = []
     unique = []
@@ -61,21 +64,27 @@ def filter_excluded(items):
             filtered.append(item)
     return filtered
 
-def get_saved_sessions(conn, table):
+def get_saved_sessions(conn, table, full):
     sessions = []
     try:
         cur = conn.cursor()
         cur.execute("SELECT id, windows FROM %s;" % table)
         for row in cur.fetchall():
-            item = extract_links(row)
+            item = extract_links(row, full)
             sessions += item["items"]
 
     except sqlite3.Error, e:
         print "Get sessions error: %s" % e.args[0]
     return sessions
 
-def update_row(conn, table, row_id, items):
-    return None
+def insert_row(conn, table, row_id, items):
+    try:
+        cur = conn.cursor()
+        cur.execute("INSERT INTO %s VALUES();" % table)
+        return True
+    except sqlite3.Error, e:
+        print "Add merged sessions error: %s" % e.args[0]
+        return False
 
 def delete_row(conn, table, row_id):
     try:
@@ -91,14 +100,22 @@ def delete_row(conn, table, row_id):
 def action_export(conn, tables, excluded_urls):
     items = []
     for table in tables:
-        items += get_saved_sessions(conn, table)
+        items += get_saved_sessions(conn, table, False)
 
-    items = filter_excluded(items)
-    items = remove_duplicates(items)
+    items = remove_duplicates(filter_excluded(items))
 
     print cjson.encode(items)
 
 def action_merge(conn, tables, excluded_urls):
+    items = []
+    for table in tables:
+        items += get_saved_sessions(conn, table, True)
+
+    items = remove_duplicates(filter_excluded(items))
+
+    #TODO: merge records
+    #TODO: clear existing sessions
+    #TODO: add new session with merged data
     return None
 
 def action_clean(conn, tables, excluded_urls):
@@ -110,23 +127,35 @@ def action_clean(conn, tables, excluded_urls):
         print "Cleanup error: %s" % e.args[0]
 
 if __name__ == "__main__":
-    db_path="%s/.config/google-chrome/Default/databases/chrome-extension_edacconmaakjimmfgnblocblbcdcpbko_0/2" % expanduser("~")
     tables = ["SavedSessions", "PreviousSessions"]
 
+    # handle commandline arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-a", "--action",
+                        choices=['export', 'merge', 'clean'],
+                        help="Action: export, merge, clean",
+                        required=True)
+    parser.add_argument("-e", "--exclude",
+                        help="Path to file with excluded urls",
+                        required=False)
+    parser.add_argument("-p", "--profile",
+                        help="Path to Chrome profile",
+                        required=False)
+    args = parser.parse_args()
+
+    # apply parsed commandline arguments
+    excluded_urls = []
+    if args.exclude:
+        excluded_urls = load_exclude_file(args.exclude)
+
+    chrome_profile = "%s/.config/google-chrome/Default/" % expanduser("~")
+    if args.profile:
+        chrome_profile = args.chrome_profile
+
+    extension = "chrome-extension_edacconmaakjimmfgnblocblbcdcpbko_0"
+    db_path = "%s/databases/%s/2" % (chrome_profile, extension)
     conn = sqlite3.connect(db_path)
     try:
-        parser = argparse.ArgumentParser()
-        parser.add_argument("-a", "--action",
-                            choices=['export', 'merge', 'clean'],
-                            help="Action: export, merge, clean", required=True)
-        parser.add_argument("-e", "--exclude",
-                            help="Path to file with excluded urls")
-        args = parser.parse_args()
-
-        excluded_urls = []
-        if args.exclude:
-            excluded_urls = load_exclude_file(args.exclude)
-
         if args.action == "export":
             action_export(conn, tables, excluded_urls)
         elif args.action == "clean":
