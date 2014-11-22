@@ -64,6 +64,20 @@ def filter_excluded(items):
             filtered.append(item)
     return filtered
 
+def build_tabs(id, top, width, heighttabs):
+    return {"alwaysOnTop":false,
+            "focused":true,
+            "height":height,
+            "id":id,
+            "incognito":false,
+            "left":0,
+            "state":"normal",
+            "tabs":tabs,
+            "top":top,
+            "type":"normal",
+            "width":width
+        }
+
 def get_saved_sessions(conn, table, full):
     sessions = []
     try:
